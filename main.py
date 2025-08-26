@@ -247,7 +247,7 @@ When students upload SAT questions or ask about topics, find the most relevant m
 
 @app.post("/api/analyze-question", response_model=APIResponse)
 async def analyze_question(file: UploadFile = File(...)):
-    """Analyze uploaded SAT question using knowledge base"""
+    """Analyze uploaded SAT question using knowledge base - Updated for Assistants API"""
     
     if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -262,29 +262,9 @@ async def analyze_question(file: UploadFile = File(...)):
         contents = await file.read()
         base64_image = base64.b64encode(contents).decode('utf-8')
         
-        # Prepare message for assistant with image
-        message_content = [
-            {
-                "type": "text",
-                "text": """Please analyze this math question image. Follow the Caddell Prep method:
-
-1. Identify what type of question this is
-2. Find similar examples in the knowledge base
-3. Explain step-by-step using our teaching methods
-4. Consider if Desmos calculator would help
-5. Look for any Caddell Prep tricks (answer choices, plugging in numbers, etc.)
-
-Provide the answer first, then detailed explanation matching our materials."""
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
-                }
-            }
-        ]
-        
-        response_content = await call_openai_assistants_api(message_content)
+        # For Assistants API, we need to use the direct HTTP approach for vision
+        # The Assistants API doesn't support vision with file_search yet
+        response_content = await call_openai_vision_with_knowledge_base(base64_image)
         
         logger.info("Successfully analyzed image using knowledge base")
         return APIResponse(response=response_content)
@@ -294,6 +274,79 @@ Provide the answer first, then detailed explanation matching our materials."""
     except Exception as e:
         logger.error(f"Error analyzing image: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+async def call_openai_vision_with_knowledge_base(base64_image):
+    """Call OpenAI Vision API with knowledge base context"""
+    
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Enhanced prompt that incorporates your knowledge base approach
+    system_prompt = """You are Bucky, a math tutor working for Caddell Prep. Analyze this math question image using our proven teaching methods:
+
+1. IDENTIFY what type of question this is (e.g., system of equations, quadratic, function graph)
+2. EXPLAIN the approach step-by-step using Caddell Prep methods
+3. PROVIDE the correct answer first, then detailed explanation
+4. CONSIDER if Desmos calculator would help: https://www.desmos.com/calculator
+5. LOOK for Caddell Prep tricks: answer choice testing, plugging in numbers, graphing
+6. USE proper math formatting: $x^2$ for inline, $equations$ for display
+7. BE friendly and instructional, like tutoring a confused student
+8. AVOID shortcuts unless they're part of the Caddell Prep method
+
+Based on your training with Caddell Prep materials, use the same step-by-step approach and teaching style from the uploaded lesson PDFs."""
+
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Please analyze this math question image using the Caddell Prep method. Identify the question type, provide the answer, and explain step-by-step using our teaching approach."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 1500,
+        "temperature": 0.3
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                raise HTTPException(status_code=response.status_code, detail=f"OpenAI API error: {error_msg}")
+                
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=500, detail="Request to OpenAI timed out")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
 @app.post("/api/chat", response_model=APIResponse)
 async def chat(message_data: ChatMessage):
