@@ -5,9 +5,8 @@ import httpx
 import json
 import logging
 import asyncio
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 import base64
@@ -246,21 +245,15 @@ When students upload SAT questions or ask about topics, find the most relevant m
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Setup failed: {str(e)}")
 
-@app.post("/api/analyze-question")
-async def analyze_question(file: UploadFile = File(...), request: Request = None):
+@app.post("/api/analyze-question", response_model=APIResponse)
+async def analyze_question(file: UploadFile = File(...)):
     """Analyze uploaded SAT question using knowledge base - Updated for Assistants API"""
     
     if not file.content_type or not file.content_type.startswith('image/'):
-        error_msg = "File must be an image"
-        if request and "multipart/form-data" in str(request.headers.get("content-type", "")):
-            return HTMLResponse(f"<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>{error_msg}</p></div>")
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail="File must be an image")
     
     if file.size and file.size > 10 * 1024 * 1024:
-        error_msg = "File too large. Maximum size is 10MB"
-        if request and "multipart/form-data" in str(request.headers.get("content-type", "")):
-            return HTMLResponse(f"<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>{error_msg}</p></div>")
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
     
     try:
         logger.info(f"Processing image with knowledge base: {file.filename}")
@@ -270,35 +263,16 @@ async def analyze_question(file: UploadFile = File(...), request: Request = None
         base64_image = base64.b64encode(contents).decode('utf-8')
         
         # For Assistants API, we need to use the direct HTTP approach for vision
+        # The Assistants API doesn't support vision with file_search yet
         response_content = await call_openai_vision_with_knowledge_base(base64_image)
         
         logger.info("Successfully analyzed image using knowledge base")
-        
-        # Return HTML for form submissions, JSON for API calls
-        if request and "multipart/form-data" in str(request.headers.get("content-type", "")):
-            html_response = f"""
-            <div style='padding: 20px; font-family: Arial, sans-serif; line-height: 1.6; max-width: 100%;'>
-                <div style='background: #e8f5e8; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 15px; border-radius: 0 6px 6px 0;'>
-                    <strong style='color: #155724;'>🎓 Bucky's Image Analysis:</strong>
-                </div>
-                <div style='background: white; padding: 15px; border-radius: 6px; border: 1px solid #ddd; white-space: pre-wrap;'>
-                    {response_content.replace('<', '&lt;').replace('>', '&gt;')}
-                </div>
-                <div style='margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #6c757d;'>
-                    Analyzed using Caddell Prep's teaching methods
-                </div>
-            </div>
-            """
-            return HTMLResponse(html_response)
-        else:
-            return APIResponse(response=response_content)
+        return APIResponse(response=response_content)
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error analyzing image: {str(e)}")
-        if request and "multipart/form-data" in str(request.headers.get("content-type", "")):
-            return HTMLResponse(f"<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>Internal server error: {str(e)}</p></div>")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 async def call_openai_vision_with_knowledge_base(base64_image):
@@ -374,39 +348,21 @@ Based on your training with Caddell Prep materials, use the same step-by-step ap
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
-@app.post("/api/chat")
-async def chat(message_data: ChatMessage = None, request: Request = None):
-    """Handle text chat using knowledge base - supports both JSON and form data"""
+@app.post("/api/chat", response_model=APIResponse)
+async def chat(message_data: ChatMessage):
+    """Handle text chat using knowledge base"""
     
-    message_text = None
-    
-    # Try to get message from JSON first
-    if message_data and message_data.message:
-        message_text = message_data.message
-    else:
-        # Try to get from form data
-        try:
-            from fastapi import Request, Form
-            form = await request.form()
-            message_text = form.get("message")
-        except:
-            pass
-    
-    if not message_text or len(message_text.strip()) == 0:
-        # Return HTML error for form submissions, JSON for API calls
-        if request and request.headers.get("content-type") == "application/x-www-form-urlencoded":
-            return HTMLResponse("<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>Message cannot be empty. Please enter your question.</p></div>")
+    if not message_data.message or len(message_data.message.strip()) == 0:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     
-    if len(message_text) > 2000:
-        if request and request.headers.get("content-type") == "application/x-www-form-urlencoded":
-            return HTMLResponse("<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>Message too long. Maximum 2000 characters.</p></div>")
+    if len(message_data.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long. Maximum 2000 characters")
     
     try:
-        logger.info(f"Processing chat with knowledge base: {message_text[:50]}...")
+        logger.info(f"Processing chat with knowledge base: {message_data.message[:50]}...")
         
-        enhanced_message = f"""Student question: {message_text}
+        # Enhanced message for knowledge base search
+        enhanced_message = f"""Student question: {message_data.message}
 
 Please help using the Caddell Prep method:
 1. Identify what type of math question this is
@@ -419,33 +375,12 @@ Please help using the Caddell Prep method:
         response_content = await call_openai_assistants_api(enhanced_message)
         
         logger.info("Successfully processed chat using knowledge base")
-        
-        # Return HTML for form submissions, JSON for API calls
-        if request and "application/x-www-form-urlencoded" in str(request.headers.get("content-type", "")):
-            # Return HTML response for form submission
-            html_response = f"""
-            <div style='padding: 20px; font-family: Arial, sans-serif; line-height: 1.6; max-width: 100%;'>
-                <div style='background: #e8f5e8; border-left: 4px solid #28a745; padding: 15px; margin-bottom: 15px; border-radius: 0 6px 6px 0;'>
-                    <strong style='color: #155724;'>🎓 Bucky's Response:</strong>
-                </div>
-                <div style='background: white; padding: 15px; border-radius: 6px; border: 1px solid #ddd; white-space: pre-wrap;'>
-                    {response_content.replace('<', '&lt;').replace('>', '&gt;')}
-                </div>
-                <div style='margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #6c757d;'>
-                    Powered by Caddell Prep's proven teaching methods
-                </div>
-            </div>
-            """
-            return HTMLResponse(html_response)
-        else:
-            return APIResponse(response=response_content)
+        return APIResponse(response=response_content)
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error processing chat: {str(e)}")
-        if request and "application/x-www-form-urlencoded" in str(request.headers.get("content-type", "")):
-            return HTMLResponse(f"<div style='padding: 20px; font-family: Arial;'><h3 style='color: #dc3545;'>Error</h3><p>Sorry, there was an error: {str(e)}</p></div>")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 if __name__ == "__main__":
