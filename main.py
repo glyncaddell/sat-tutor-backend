@@ -2,10 +2,15 @@ import os
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import openai
-import base64
 from typing import Optional
 import logging
+
+# Only import openai if we can, to avoid import errors during deployment
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,10 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OpenAI - only if API key is provided
+# Initialize OpenAI client only if available and API key exists
 openai_client = None
-if os.getenv("OPENAI_API_KEY"):
-    openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY"):
+    try:
+        openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        logger.info("OpenAI client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
 
 class ChatMessage(BaseModel):
     message: str
@@ -47,25 +56,45 @@ Keep your explanations clear, encouraging, and educational. If you're unsure abo
 
 @app.get("/")
 async def root():
-    api_key_status = "✅ Connected" if openai_client else "❌ Missing API Key"
+    openai_status = "❌ Not Available"
+    if not OPENAI_AVAILABLE:
+        openai_status = "❌ OpenAI package not installed"
+    elif not os.getenv("OPENAI_API_KEY"):
+        openai_status = "❌ API Key Missing"
+    elif openai_client:
+        openai_status = "✅ Connected"
+    else:
+        openai_status = "❌ Connection Failed"
+    
     return {
         "message": "SAT Tutor API is running successfully!",
         "status": "healthy",
-        "openai_status": api_key_status
+        "openai_status": openai_status,
+        "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local"
     }
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "openai_configured": bool(openai_client)}
+    return {
+        "status": "healthy", 
+        "openai_configured": bool(openai_client),
+        "openai_available": OPENAI_AVAILABLE
+    }
 
 @app.post("/api/analyze-question", response_model=APIResponse)
 async def analyze_question(file: UploadFile = File(...)):
     """Analyze an uploaded SAT question image"""
     
+    if not OPENAI_AVAILABLE:
+        raise HTTPException(
+            status_code=500, 
+            detail="OpenAI package not available. Please check deployment."
+        )
+    
     if not openai_client:
         raise HTTPException(
             status_code=500, 
-            detail="OpenAI API key not configured. Please add OPENAI_API_KEY environment variable."
+            detail="OpenAI not configured. Please add OPENAI_API_KEY environment variable."
         )
     
     # Validate file type
@@ -81,6 +110,7 @@ async def analyze_question(file: UploadFile = File(...)):
         
         # Read and encode the image
         contents = await file.read()
+        import base64
         base64_image = base64.b64encode(contents).decode('utf-8')
         
         # Call OpenAI Vision API
@@ -111,23 +141,31 @@ async def analyze_question(file: UploadFile = File(...)):
         logger.info("Successfully analyzed image")
         return APIResponse(response=response.choices[0].message.content)
         
-    except openai.APIError as e:
-        logger.error(f"OpenAI API error: {str(e)}")
-        if "insufficient_quota" in str(e).lower():
-            raise HTTPException(status_code=500, detail="OpenAI API quota exceeded. Please check your billing.")
-        raise HTTPException(status_code=500, detail="AI service temporarily unavailable")
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Error analyzing image: {str(e)}")
+        error_message = "Internal server error"
+        
+        if "insufficient_quota" in str(e).lower():
+            error_message = "OpenAI API quota exceeded. Please check your billing."
+        elif "invalid_api_key" in str(e).lower():
+            error_message = "Invalid OpenAI API key."
+        
+        raise HTTPException(status_code=500, detail=error_message)
 
 @app.post("/api/chat", response_model=APIResponse)
 async def chat(message_data: ChatMessage):
     """Handle text-based chat messages"""
     
+    if not OPENAI_AVAILABLE:
+        raise HTTPException(
+            status_code=500, 
+            detail="OpenAI package not available. Please check deployment."
+        )
+    
     if not openai_client:
         raise HTTPException(
             status_code=500, 
-            detail="OpenAI API key not configured. Please add OPENAI_API_KEY environment variable."
+            detail="OpenAI not configured. Please add OPENAI_API_KEY environment variable."
         )
     
     if not message_data.message or len(message_data.message.strip()) == 0:
@@ -152,14 +190,16 @@ async def chat(message_data: ChatMessage):
         logger.info("Successfully processed chat message")
         return APIResponse(response=response.choices[0].message.content)
         
-    except openai.APIError as e:
-        logger.error(f"OpenAI API error: {str(e)}")
-        if "insufficient_quota" in str(e).lower():
-            raise HTTPException(status_code=500, detail="OpenAI API quota exceeded. Please check your billing.")
-        raise HTTPException(status_code=500, detail="AI service temporarily unavailable")
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Error processing chat: {str(e)}")
+        error_message = "Internal server error"
+        
+        if "insufficient_quota" in str(e).lower():
+            error_message = "OpenAI API quota exceeded. Please check your billing."
+        elif "invalid_api_key" in str(e).lower():
+            error_message = "Invalid OpenAI API key."
+        
+        raise HTTPException(status_code=500, detail=error_message)
 
 if __name__ == "__main__":
     import uvicorn
