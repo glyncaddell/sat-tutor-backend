@@ -154,7 +154,7 @@ async def analyze_question(file: UploadFile = File(...)):
         # Call OpenAI Vision API
         response_content = await call_openai_api(
             messages=messages, 
-            model="gpt-4-vision-preview", 
+            model="gpt-4o", 
             max_tokens=1500
         )
         
