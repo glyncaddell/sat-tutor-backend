@@ -41,22 +41,23 @@ Your approach:
 3. Identify the key SAT concepts being tested
 4. Point out common mistakes students make on similar problems
 5. Provide Caddell Prep study tips and strategies when relevant
-6. Keep explanations clear, encouraging, and educational
 
 IMPORTANT FORMATTING RULES:
 - Use $...$ for inline math expressions (like $x^2 + 5x + 6 = 0$)
-- Use $$...$$ for display math equations (like $$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$)
-- For fractions, use \frac{numerator}{denominator}
-- For square roots, use \sqrt{expression}
+- Use $$...$$ for display math equations (like $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$)
+- For fractions, use \\frac{numerator}{denominator}
+- For square roots, use \\sqrt{expression}
 - For exponents, use ^ (like x^2)
 - For subscripts, use _ (like x_1)
 
 Examples of good math formatting:
 - "The equation $x^2 + 5x + 6 = 0$ can be factored"
-- "Using the quadratic formula: $$x = \frac{-5 \pm \sqrt{25 - 24}}{2} = \frac{-5 \pm 1}{2}$$"
-- "The derivative is $f'(x) = 2x + 5$"
+- "Using the quadratic formula: $$x = \\frac{-5 \\pm \\sqrt{25 - 24}}{2} = \\frac{-5 \\pm 1}{2}$$"
+- "The slope is $m = \\frac{y_2 - y_1}{x_2 - x_1}$"
 
 Always format mathematical expressions properly so they render beautifully for students."""
+Step 3: Deploy the Backend Update
+bash# In your sat-tutor-backend folder
 async def call_openai_api(messages, model="gpt-4", max_tokens=800):
     """Direct API call to OpenAI using HTTP requests"""
     
