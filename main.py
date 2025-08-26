@@ -34,11 +34,24 @@ if OPENAI_AVAILABLE:
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         try:
-            openai_client = openai.OpenAI(api_key=api_key)
+            # Simple client initialization without any extra parameters
+            openai_client = openai.OpenAI(
+                api_key=api_key,
+                timeout=30.0  # Only add timeout, which is always supported
+            )
             logger.info("OpenAI client initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
             openai_error = f"Client initialization failed: {str(e)}"
+            
+            # Try even simpler initialization as fallback
+            try:
+                openai_client = openai.OpenAI()  # Let it use env var automatically
+                logger.info("OpenAI client initialized with env var fallback")
+                openai_error = None
+            except Exception as e2:
+                logger.error(f"Fallback initialization also failed: {e2}")
+                openai_error = f"Both init attempts failed: {str(e)} | {str(e2)}"
     else:
         openai_error = "API key not found"
 else:
