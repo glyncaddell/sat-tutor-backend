@@ -56,10 +56,14 @@ Keep your explanations clear, encouraging, and educational. If you're unsure abo
 
 @app.get("/")
 async def root():
+    # Debug information
+    api_key = os.getenv("OPENAI_API_KEY")
+    api_key_preview = f"{api_key[:10]}..." if api_key else None
+    
     openai_status = "❌ Not Available"
     if not OPENAI_AVAILABLE:
         openai_status = "❌ OpenAI package not installed"
-    elif not os.getenv("OPENAI_API_KEY"):
+    elif not api_key:
         openai_status = "❌ API Key Missing"
     elif openai_client:
         openai_status = "✅ Connected"
@@ -70,7 +74,10 @@ async def root():
         "message": "SAT Tutor API is running successfully!",
         "status": "healthy",
         "openai_status": openai_status,
-        "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local"
+        "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local",
+        "api_key_present": bool(api_key),
+        "api_key_preview": api_key_preview,
+        "all_env_vars": list(os.environ.keys())  # Shows all available env vars
     }
 
 @app.get("/health")
