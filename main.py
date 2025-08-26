@@ -28,12 +28,21 @@ app.add_middleware(
 
 # Initialize OpenAI client only if available and API key exists
 openai_client = None
-if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY"):
-    try:
-        openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        logger.info("OpenAI client initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize OpenAI client: {e}")
+openai_error = None
+
+if OPENAI_AVAILABLE:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            openai_client = openai.OpenAI(api_key=api_key)
+            logger.info("OpenAI client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            openai_error = f"Client initialization failed: {str(e)}"
+    else:
+        openai_error = "API key not found"
+else:
+    openai_error = "OpenAI package not available"
 
 class ChatMessage(BaseModel):
     message: str
@@ -68,7 +77,7 @@ async def root():
     elif openai_client:
         openai_status = "✅ Connected"
     else:
-        openai_status = "❌ Connection Failed"
+        openai_status = f"❌ Connection Failed: {openai_error}"
     
     return {
         "message": "SAT Tutor API is running successfully!",
@@ -77,7 +86,9 @@ async def root():
         "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local",
         "api_key_present": bool(api_key),
         "api_key_preview": api_key_preview,
-        "all_env_vars": list(os.environ.keys())  # Shows all available env vars
+        "openai_available": OPENAI_AVAILABLE,
+        "client_created": bool(openai_client),
+        "error_details": openai_error
     }
 
 @app.get("/health")
